@@ -1,15 +1,19 @@
 """
-Botanic (PORT 5002)
+Botanic (PORT 5000)
 By Tom Horton
-1/3/22
+6/3/22
 *****
-ALPHA-v0.2
+
+*****
+ALPHA-v0.3
     changelog:
+        v0.3 - added public and private key request and generation
         v0.2 - added docstrings and comments, removed temporary print commands used during debugging
         v0.1 - INIT
 *****
 This program will create a node that will hold a blockchain, or decentralized append-only ledger, with rudimentary
-implementation of mining, consensus, validation, and transactions.
+implementation of mining, consensus, validation, and transactions. the code uses flask to interact with GET and POST
+requests in order to interact with the node.
 """
 
 import datetime
@@ -19,6 +23,8 @@ from flask import Flask, jsonify, request
 import requests
 from uuid import uuid4
 from urllib.parse import urlparse
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
 
 
 class Blockchain:
@@ -116,13 +122,55 @@ class Blockchain:
         return False
 
 
+# create an index for saved user keys - security nightmare TODO fix
+user_index = 0
+
+
+class Cryptography:
+    """Contains methods related to generating and requesting keys"""
+
+    private_key = []
+    public_key = []
+    user = []
+
+    def generate_key_object(self):
+        """generate private key object"""
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048)
+        return private_key
+
+    def request_keys(self, password):
+        """create private and public keys, as well as UUID and user index. write information to public_key_log.txt
+        and private_key_log.txt"""
+        global user_index
+        private_key_pass = password[0].encode()
+        encrypted_pem_private_key = self.generate_key_object().private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(private_key_pass))
+        pem_public_key = self.generate_key_object().public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo)
+        user_identification = str(uuid4()).replace("-", " ")
+        self.user.append(user_identification)
+        private_key_file = open("private_key_log.txt", "a")
+        private_key_file.write(f"INDEX = {user_index} - UUID = {user_identification}\n\nPRIVATE KEY = {encrypted_pem_private_key.decode()}\n---\n\n")
+        private_key_file.close()
+        public_key_file = open("public_key_log.txt", "a")
+        public_key_file.write(f"INDEX = {user_index} - UUID = {user_identification}\n\nPUBLIC KEY = {pem_public_key.decode()}\n---\n\n")
+        public_key_file.close()
+        self.public_key.append(pem_public_key.decode())
+        self.private_key.append(encrypted_pem_private_key.decode())
+
+
 app = Flask(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False   # Flask will return an error if this isnt included
 
 node_address = str(uuid4()).replace("-", " ")
 
 blockchain = Blockchain()
-
+cryptography = Cryptography()
 
 @app.route("/mine_block", methods=["GET"])
 def mine_block():
@@ -216,4 +264,32 @@ def replace_chain():
     return jsonify(response), 200
 
 
+@app.route("/request_keys", methods=["POST"])
+def request_keys():
+    """
+    Request to create and send public and private keys, as well as a linked UUID
+    POST command formatted as application/json:
+    {
+        "private_key_password":     ["Password"]
+    }
+    """
+    global user_index
+    json = request.get_json(force=True, silent=True, cache=False)
+    private_key_password = json.get("private_key_password")
+    print(private_key_password)
+    Cryptography().request_keys(password=private_key_password)
+    public_key = cryptography.public_key[user_index]
+    private_key = cryptography.private_key[user_index]
+    user = cryptography.user[user_index]
+    response = {"message": "Your keys have been created. KEEP YOUR PRIVATE KEY AND PASSWORD SAFE!!!",
+                "Public_key": public_key,
+                "Private_key": private_key,
+                "UUID": user,
+                "INDEX": user_index}
+    user_index += 1
+    print(user_index)
+    return jsonify(response), 200
+
+
 app.run(host="0.0.0.0", port=5002)      # change port to run multiple instances on a single machine for development
+
