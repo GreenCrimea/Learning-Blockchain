@@ -7,7 +7,7 @@ By Tom Horton
 *****
 ALPHA-v0.4
     changelog:
-        v0.4 - added automatic consensus and automatic node propagation
+        v0.4 - added automatic chain consensus and automatic node propagation
         v0.3 - added public and private key request and generation
         v0.2 - added docstrings and comments, removed temporary print commands used during debugging
         v0.1 - INIT
