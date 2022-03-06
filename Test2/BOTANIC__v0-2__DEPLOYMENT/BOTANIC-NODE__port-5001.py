@@ -1,12 +1,13 @@
 """
 Botanic (PORT 5000)
 By Tom Horton
-6/3/22
+7/3/22
 *****
 
 *****
-ALPHA-v0.4
+ALPHA-v0.5
     changelog:
+        v0.5 - added a mechanism to join a chain, cleaned up some print functions
         v0.4 - added automatic chain consensus and automatic node propagation
         v0.3 - added public and private key request and generation
         v0.2 - added docstrings and comments, removed temporary print commands used during debugging
@@ -131,10 +132,14 @@ class Blockchain:
         previous_block = self.get_previous_block()
         return previous_block["index"] + 1
 
-    def add_node(self, address):
+    def add_node(self, address, new_node):
         """add the address of any nodes to the node set"""
-        parsed_url = urlparse(address)
-        self.node.add(parsed_url.netloc)
+        if address:
+            parsed_url = urlparse(address)
+            self.node.add(parsed_url.netloc)
+        if new_node:
+            parse_node = urlparse(new_node)
+            self.node.add(parse_node.netloc)
         self.self_node()
 
     def replace_chain(self):
@@ -172,18 +177,15 @@ class Blockchain:
         self.self_node()
         list_of_nodes = tuple(self.node)
         node_length = len(list_of_nodes)
-        print(list_of_nodes)
-        for a in range(node_length):
-            deliver_to = "http://" + list_of_nodes[a] + "/receive_propagation"
-            print(deliver_to)
-            requests.post(url=deliver_to, data=node)
-            print(a)
-            a += 1
+        if node_length > 1:
+            for a in range(node_length):
+                deliver_to = "http://" + list_of_nodes[a] + "/receive_propagation"
+                requests.post(url=deliver_to, data=node)
+                a += 1
 
     def receive_propagation(self, node):
         """receive the nodes from other machines"""
         self.node.add(node)
-        print(self.node)
         self.self_node()
 
 
@@ -311,7 +313,7 @@ def connect_node():
     if nodes is None:
         return "No Node", 400
     for nodes in nodes:
-        blockchain.add_node(nodes)
+        blockchain.add_node(address=nodes, new_node=None)
     response = {"message": "All nodes Connected. The Botanical Chain now contains the nodes:",
                 "total_nodes": list(blockchain.node)}
     return jsonify(response), 201
@@ -325,7 +327,6 @@ def propagate_nodes():
     list_of_nodes = tuple(list_of_nodes)
     node_length = len(list_of_nodes)
     for a in range(node_length):
-        print(list_of_nodes[a])
         blockchain.propagate_node(list_of_nodes[a])
         a += 1
     response = {"message": "Nodes have successfully propagated"}
@@ -339,7 +340,6 @@ def propagate_nodes_timer():
     list_of_nodes = tuple(list_of_nodes)
     node_length = len(list_of_nodes)
     for a in range(node_length):
-        print(list_of_nodes[a])
         blockchain.propagate_node(list_of_nodes[a])
         a += 1
     print("Nodes have successfully propagated")
@@ -353,9 +353,29 @@ rt_one = RepeatedTimer(300, propagate_nodes_timer)
 def receive_propagation():
     """receive data from other machines on the network and update node list"""
     node = request.data.decode('utf-8')
-    print(node)
     blockchain.receive_propagation(node)
     response = {"message": "Nodes have successfully propagated"}
+    return jsonify(response), 201
+
+
+@app.route("/join_chain", methods=["POST"])
+def join_chain():
+    """
+    join the chain by sending your current address.
+    POST command formatted as application/json:
+    {
+        "address":   ["http://192.168.1.3:5000/"]
+    }
+    """
+    json = request.get_json(force=True, silent=True, cache=False)
+    new_node = str(json.get("address"))
+    new_node = new_node.replace("[", "")
+    new_node = new_node.replace("]", "")
+    new_node = new_node.replace("'", "")
+    new_node = new_node.replace("'", "")
+    blockchain.add_node(address=None, new_node=new_node)
+    blockchain.propagate_node(new_node)
+    response = {"message": "You have successfully joined the botanical chain"}
     return jsonify(response), 201
 
 
@@ -397,7 +417,6 @@ def request_keys():
     global user_index
     json = request.get_json(force=True, silent=True, cache=False)
     private_key_password = json.get("private_key_password")
-    print(private_key_password)
     Cryptography().request_keys(password=private_key_password)
     public_key = cryptography.public_key[user_index]
     private_key = cryptography.private_key[user_index]
@@ -408,7 +427,6 @@ def request_keys():
                 "UUID": user,
                 "INDEX": user_index}
     user_index += 1
-    print(user_index)
     return jsonify(response), 200
 
 
