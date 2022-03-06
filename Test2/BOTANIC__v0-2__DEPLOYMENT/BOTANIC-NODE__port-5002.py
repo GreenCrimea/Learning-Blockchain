@@ -25,6 +25,34 @@ from uuid import uuid4
 from urllib.parse import urlparse
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+from threading import Timer
+
+
+class RepeatedTimer(object):
+    def __init__(self, interval, function, *args, **kwargs):
+        self._timer = None
+        self.interval = interval
+        self.function = function
+        self.args = args
+        self.kwargs = kwargs
+        self.is_running = False
+        self.start()
+
+    def _run(self):
+        self.is_running = False
+        self.start()
+        self.function(*self.args, **self.kwargs)
+
+    def start(self):
+        if not self.is_running:
+            self._timer = Timer(self.interval, self._run)
+            print("\n...beep...\n")
+            self._timer.start()
+            self.is_running = True
+
+    def stop(self):
+        self._timer.cancel()
+        self.is_running = False
 
 
 class Blockchain:
@@ -264,6 +292,18 @@ def replace_chain():
     return jsonify(response), 200
 
 
+def replace_chain_timer():
+    """request to update this machines chain to the longest in the network - triggered automatically"""
+    is_chain_replaced = blockchain.replace_chain()
+    if is_chain_replaced:
+        print(f"The node's chain has been replaced with the current longest chain.")
+    else:
+        print(f"The current chain is the longest.")
+
+# print("starting consensus timer, checking every 1 minute")
+# rt_one = RepeatedTimer(60, replace_chain_timer)
+
+
 @app.route("/request_keys", methods=["POST"])
 def request_keys():
     """
@@ -288,6 +328,13 @@ def request_keys():
                 "INDEX": user_index}
     user_index += 1
     print(user_index)
+    return jsonify(response), 200
+
+
+@app.route("/see_nodes", methods=["GET"])
+def see_nodes():
+    nodes = list(blockchain.node)
+    response = {"message": nodes}
     return jsonify(response), 200
 
 
