@@ -27,6 +27,7 @@ from uuid import uuid4
 from urllib.parse import urlparse
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+from cryptography.fernet import Fernet
 from threading import Timer
 
 
@@ -189,8 +190,7 @@ class Blockchain:
         self.self_node()
 
 
-
-# create an index for saved user keys - security nightmare TODO fix
+# create an index for saved user keys on this machine
 user_index = 0
 
 
@@ -231,6 +231,20 @@ class Cryptography:
         self.public_key.append(pem_public_key.decode())
         self.private_key.append(encrypted_pem_private_key.decode())
 
+    def encrypt_data(self, message):
+        """Encrypt any message, receive token and key"""
+        key = Fernet.generate_key()
+        f = Fernet(key)
+        byte_data = message.encode()
+        token = f.encrypt(byte_data)
+        return token.decode(), key.decode()
+
+    def decrypt_data(self, token, key):
+        """with token and key, decrypt any message"""
+        f = Fernet(key)
+        data = f.decrypt(token)
+        return data.decode()
+
 
 app = Flask(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False   # Flask will return an error if this isnt included
@@ -239,6 +253,7 @@ node_address = str(uuid4()).replace("-", " ")
 
 blockchain = Blockchain()
 cryptography = Cryptography()
+
 
 @app.route("/mine_block", methods=["GET"])
 def mine_block():
