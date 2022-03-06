@@ -5,8 +5,9 @@ By Tom Horton
 *****
 
 *****
-ALPHA-v0.3
+ALPHA-v0.4
     changelog:
+        v0.4 - added automatic consensus and automatic node propagation
         v0.3 - added public and private key request and generation
         v0.2 - added docstrings and comments, removed temporary print commands used during debugging
         v0.1 - INIT
@@ -26,6 +27,9 @@ from urllib.parse import urlparse
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from threading import Timer
+
+
+this_node = "192.168.1.3:5000"
 
 
 class RepeatedTimer(object):
@@ -57,6 +61,8 @@ class RepeatedTimer(object):
 
 class Blockchain:
     """contains all methods relating to the backend of the blockchain"""
+
+    node = set()
 
     def __init__(self):
         self.chain = []
@@ -129,6 +135,7 @@ class Blockchain:
         """add the address of any nodes to the node set"""
         parsed_url = urlparse(address)
         self.node.add(parsed_url.netloc)
+        self.self_node()
 
     def replace_chain(self):
         """replace this machines chain if a node currently holds a longer valid chain"""
@@ -148,6 +155,37 @@ class Blockchain:
             self.chain = longest_chain
             return True
         return False
+
+    def self_node(self):
+        """make sure this machines address is not in its node set, as will cause infinite loop"""
+        list_of_nodes = tuple(self.node)
+        node_length = len(list_of_nodes)
+        for a in range(node_length):
+            if list_of_nodes[a] == this_node:
+                list_nodes = set(list_of_nodes)
+                list_nodes.remove(this_node)
+                self.node = list_nodes
+                a += 1
+
+    def propagate_node(self, node):
+        """propagate this machines nodes to all machines on the network"""
+        self.self_node()
+        list_of_nodes = tuple(self.node)
+        node_length = len(list_of_nodes)
+        print(list_of_nodes)
+        for a in range(node_length):
+            deliver_to = "http://" + list_of_nodes[a] + "/receive_propagation"
+            print(deliver_to)
+            requests.post(url=deliver_to, data=node)
+            print(a)
+            a += 1
+
+    def receive_propagation(self, node):
+        """receive the nodes from other machines"""
+        self.node.add(node)
+        print(self.node)
+        self.self_node()
+
 
 
 # create an index for saved user keys - security nightmare TODO fix
@@ -279,6 +317,48 @@ def connect_node():
     return jsonify(response), 201
 
 
+@app.route("/propagate_nodes", methods=["GET"])
+def propagate_nodes():
+    """sends this machines current nodes to all other machines on the network"""
+    list_of_nodes = blockchain.node
+    list_of_nodes.add(this_node)
+    list_of_nodes = tuple(list_of_nodes)
+    node_length = len(list_of_nodes)
+    for a in range(node_length):
+        print(list_of_nodes[a])
+        blockchain.propagate_node(list_of_nodes[a])
+        a += 1
+    response = {"message": "Nodes have successfully propagated"}
+    return jsonify(response), 201
+
+
+def propagate_nodes_timer():
+    """automatically sends this machines current nodes to all other machines on the network """
+    list_of_nodes = blockchain.node
+    list_of_nodes.add(this_node)
+    list_of_nodes = tuple(list_of_nodes)
+    node_length = len(list_of_nodes)
+    for a in range(node_length):
+        print(list_of_nodes[a])
+        blockchain.propagate_node(list_of_nodes[a])
+        a += 1
+    print("Nodes have successfully propagated")
+
+
+print("starting propagation timer, checking every 5 minutes")
+rt_one = RepeatedTimer(300, propagate_nodes_timer)
+
+
+@app.route("/receive_propagation", methods=["POST"])
+def receive_propagation():
+    """receive data from other machines on the network and update node list"""
+    node = request.data.decode('utf-8')
+    print(node)
+    blockchain.receive_propagation(node)
+    response = {"message": "Nodes have successfully propagated"}
+    return jsonify(response), 201
+
+
 @app.route("/replace_chain", methods=["GET"])
 def replace_chain():
     """request to update this machines chain to the longest in the network"""
@@ -300,8 +380,9 @@ def replace_chain_timer():
     else:
         print(f"The current chain is the longest.")
 
-# print("starting consensus timer, checking every 1 minute")
-# rt_one = RepeatedTimer(60, replace_chain_timer)
+
+print("starting consensus timer, checking every 1 minute")
+rt_two = RepeatedTimer(60, replace_chain_timer)
 
 
 @app.route("/request_keys", methods=["POST"])
@@ -333,6 +414,7 @@ def request_keys():
 
 @app.route("/see_nodes", methods=["GET"])
 def see_nodes():
+    """return the nodes in this machines list"""
     nodes = list(blockchain.node)
     response = {"message": nodes}
     return jsonify(response), 200
