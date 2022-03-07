@@ -5,8 +5,9 @@ By Tom Horton
 *****
 
 *****
-ALPHA-v0.5
+ALPHA-v0.6
     changelog:
+        v0.6 - added mechanism to generate a wallet
         v0.5 - added a mechanism to join a chain, cleaned up some print functions
         v0.4 - added automatic chain consensus and automatic node propagation
         v0.3 - added public and private key request and generation
@@ -25,10 +26,11 @@ from flask import Flask, jsonify, request
 import requests
 from uuid import uuid4
 from urllib.parse import urlparse
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
 from cryptography.fernet import Fernet
 from threading import Timer
+from Crypto.PublicKey import RSA
+from hashlib import sha512
+
 
 
 this_node = "192.168.1.3:5000"
@@ -190,52 +192,15 @@ class Blockchain:
         self.self_node()
 
 
-# create an index for saved user keys on this machine
-user_index = 0
-
-
 class Cryptography:
     """Contains methods related to generating and requesting keys"""
 
-    private_key = []
-    public_key = []
-    user = []
-
-    def generate_key_object(self):
-        """generate private key object"""
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048)
-        return private_key
-
-    def request_keys(self, password):
-        """create private and public keys, as well as UUID and user index. write information to public_key_log.txt
-        and private_key_log.txt"""
-        global user_index
-        private_key_pass = password[0].encode()
-        encrypted_pem_private_key = self.generate_key_object().private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.BestAvailableEncryption(private_key_pass))
-        pem_public_key = self.generate_key_object().public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo)
-        user_identification = str(uuid4()).replace("-", " ")
-        self.user.append(user_identification)
-        private_key_file = open("private_key_log.txt", "a")
-        private_key_file.write(f"INDEX = {user_index} - UUID = {user_identification}\n\nPRIVATE KEY = {encrypted_pem_private_key.decode()}\n---\n\n")
-        private_key_file.close()
-        public_key_file = open("public_key_log.txt", "a")
-        public_key_file.write(f"INDEX = {user_index} - UUID = {user_identification}\n\nPUBLIC KEY = {pem_public_key.decode()}\n---\n\n")
-        public_key_file.close()
-        self.public_key.append(pem_public_key.decode())
-        self.private_key.append(encrypted_pem_private_key.decode())
 
     def encrypt_data(self, message):
         """Encrypt any message, receive token and key"""
         key = Fernet.generate_key()
         f = Fernet(key)
-        byte_data = message.encode()
+        byte_data = str(message).encode()
         token = f.encrypt(byte_data)
         return token.decode(), key.decode()
 
@@ -245,12 +210,39 @@ class Cryptography:
         data = f.decrypt(token)
         return data.decode()
 
+    def generate_keys(self):
+        """generate a public/private keypair"""
+        key_pair = RSA.generate(bits=1024)
+        return key_pair
+
+    def sign_message(self, message, key_obj):
+        """use a RSA keypair to sign a message"""
+        hash = int.from_bytes(sha512(message).digest(), byteorder="big")
+        signature = pow(hash, key_obj.d, key_obj.n)
+        return signature
+
+    def verify_signature(self, message, signature, key_obj):
+        """verify the signature made by the RSA keypair"""
+        hash = int.from_bytes(sha512(message).digest(), byteorder="big")
+        hash_from_signature = pow(signature, key_obj.e, key_obj.n)
+        if hash == hash_from_signature:
+            return True
+        else:
+            return False
+
+
+class Transactions:
+
+    def __init__(self):
+        pass
+
 
 app = Flask(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False   # Flask will return an error if this isnt included
 
 node_address = str(uuid4()).replace("-", " ")
 
+transactions = Transactions()
 blockchain = Blockchain()
 cryptography = Cryptography()
 
@@ -420,37 +412,57 @@ print("starting consensus timer, checking every 1 minute")
 rt_two = RepeatedTimer(60, replace_chain_timer)
 
 
-@app.route("/request_keys", methods=["POST"])
-def request_keys():
-    """
-    Request to create and send public and private keys, as well as a linked UUID
-    POST command formatted as application/json:
-    {
-        "private_key_password":     ["Password"]
-    }
-    """
-    global user_index
-    json = request.get_json(force=True, silent=True, cache=False)
-    private_key_password = json.get("private_key_password")
-    Cryptography().request_keys(password=private_key_password)
-    public_key = cryptography.public_key[user_index]
-    private_key = cryptography.private_key[user_index]
-    user = cryptography.user[user_index]
-    response = {"message": "Your keys have been created. KEEP YOUR PRIVATE KEY AND PASSWORD SAFE!!!",
-                "Public_key": public_key,
-                "Private_key": private_key,
-                "UUID": user,
-                "INDEX": user_index}
-    user_index += 1
-    return jsonify(response), 200
-
-
 @app.route("/see_nodes", methods=["GET"])
 def see_nodes():
     """return the nodes in this machines list"""
     nodes = list(blockchain.node)
     response = {"message": nodes}
     return jsonify(response), 200
+
+
+@app.route("/generate_keypair", methods=["POST"])
+def generate_keypair():
+    """
+    generates a pair of keys on demand
+    POST command formatted for application/json:
+    {
+        "private_key_password":     ["Password"]
+    }
+    """
+    json = request.get_json(force=True, silent=True, cache=False)
+    password = json.get("private_key_password")
+    key_obj = cryptography.generate_keys()
+    response = {"message": "Key pair has been generated",
+                "key": key_obj.exportKey(format='PEM').decode()}
+    return jsonify(response), 200
+
+
+@app.route("/generate_wallet", methods=["POST"])
+def generate_wallet():
+    """
+    Creates a wallet by first generating a public/private keypair, then use the keypair to generate a signature for the
+    passphrase, then encrypt the signature and return the first 32 char as the wallet ID. to check if a wallet belongs
+    public key can prove the private key signed the passphrase, and the signature can prove the holder of the wallet
+    ID and key is in possession of the private key and passphrase.
+    POST command formatted for application/json:
+    {
+        "wallet_passphrase":        "password"
+    }
+    """
+    json = request.get_json(force=True, silent=True, cache=False)
+    passphrase = json.get("wallet_passphrase")
+    key = cryptography.generate_keys()
+    signature = cryptography.sign_message(passphrase.encode(), key)
+    if cryptography.verify_signature(passphrase.encode(), signature, key):
+        wallet = cryptography.encrypt_data(signature)
+        wallet_token = str(wallet[0])
+        wallet_key = str(wallet[1])
+        response = {"message": "Your wallet ID has been created",
+                    "wallet ID": wallet_token[0:32],
+                    "wallet key": wallet_key}
+        return jsonify(response), 201
+    else:
+        return 500
 
 
 app.run(host="0.0.0.0", port=5000)      # change port to run multiple instances on a single machine for development
