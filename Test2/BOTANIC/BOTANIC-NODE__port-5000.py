@@ -237,7 +237,7 @@ class Transactions:
         pass
 
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='template')
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False   # Flask will return an error if this isnt included
 
 node_address = str(uuid4()).replace("-", " ")
