@@ -22,7 +22,7 @@ requests in order to interact with the node.
 import datetime
 import hashlib
 import json
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 import requests
 from uuid import uuid4
 from urllib.parse import urlparse
@@ -459,11 +459,17 @@ def generate_wallet():
         wallet_key = str(wallet[1])
         response = {"message": "Your wallet ID has been created",
                     "wallet ID": wallet_token[0:32],
-                    "wallet key": wallet_key}
+                    "wallet key": wallet_key,
+                    "Wallet passphrase": passphrase}
         return jsonify(response), 201
     else:
         return 500
 
 
-app.run(host="0.0.0.0", port=5000)      # change port to run multiple instances on a single machine for development
+@app.route("/")
+def home():
+    return render_template("home.html")
+
+
+app.run (host="0.0.0.0", port=5000)      # change port to run multiple instances on a single machine for development
 
