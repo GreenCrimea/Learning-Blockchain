@@ -468,7 +468,7 @@ def generate_wallet():
 
 @app.route("/")
 def home():
-    return render_template("home.html")
+    return render_template("home.html"), 200
 
 
 app.run (host="0.0.0.0", port=5000)      # change port to run multiple instances on a single machine for development
